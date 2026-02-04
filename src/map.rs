@@ -61,11 +61,13 @@ where
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if {
+        let should_drain = {
             let key = self.order.first()?;
             let value = self.inner.get(&**key).expect("value");
             (self.cond)((&**key, value))
-        } {
+        };
+
+        if should_drain {
             let key = self.order.pop_first().expect("key");
             let value = self.inner.remove(&*key).expect("value");
             let key = Arc::try_unwrap(key).expect("key");
@@ -292,6 +294,12 @@ impl<K, V> OrdHashMap<K, V> {
     }
 }
 
+impl<K, V> Default for OrdHashMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     /// Bisect this map to match a key using the provided comparison, and return its value (if any).
     ///
@@ -303,7 +311,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
         Cmp: Fn(&K) -> Option<Ordering> + Copy,
     {
         self.order
-            .bisect(|key| cmp(&*key))
+            .bisect(|key| cmp(key))
             .map(|key| self.get(&**key).expect("value"))
     }
 
@@ -323,7 +331,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Drain all entries from this [`OrdHashMap`].
-    pub fn drain(&mut self) -> Drain<K, V> {
+    pub fn drain(&mut self) -> Drain<'_, K, V> {
         Drain {
             inner: &mut self.inner,
             order: self.order.drain(),
@@ -331,7 +339,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Drain all entries from this [`OrdHashMap`].
-    pub fn drain_while<Cond>(&mut self, cond: Cond) -> DrainWhile<K, V, Cond>
+    pub fn drain_while<Cond>(&mut self, cond: Cond) -> DrainWhile<'_, K, V, Cond>
     where
         Cond: Fn((&K, &V)) -> bool,
     {
@@ -343,7 +351,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Return a mutable [`Entry`] in this [`OrdHashMap`].
-    pub fn entry<Q: Into<Arc<K>>>(&mut self, key: Q) -> Entry<K, V> {
+    pub fn entry<Q: Into<Arc<K>>>(&mut self, key: Q) -> Entry<'_, K, V> {
         match self.inner.entry(key.into()) {
             hash_map::Entry::Occupied(entry) => Entry::Occupied(entry),
             hash_map::Entry::Vacant(entry) => Entry::Vacant(VacantEntry {
@@ -409,7 +417,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Construct an iterator over the entries in this [`OrdHashMap`].
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             inner: &self.inner,
             order: self.order.iter(),
@@ -422,7 +430,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Construct an iterator over keys of this [`OrdHashMap`].
-    pub fn keys(&self) -> Keys<K, V> {
+    pub fn keys(&self) -> Keys<'_, K, V> {
         Keys {
             inner: &self.inner,
             order: self.order.iter(),
@@ -477,9 +485,9 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
         V: PartialEq + 'a,
     {
         let mut this = self.iter();
-        let mut that = other.into_iter();
+        let that = other.into_iter();
 
-        while let Some(item) = that.next() {
+        for item in that {
             if this.next() != Some(item) {
                 return false;
             }
@@ -500,7 +508,7 @@ impl<K: Eq + Hash + Ord, V> OrdHashMap<K, V> {
     }
 
     /// Construct an iterator over the values in this [`OrdHashMap`].
-    pub fn values(&self) -> Values<K, V> {
+    pub fn values(&self) -> Values<'_, K, V> {
         Values {
             inner: &self.inner,
             order: self.order.iter(),
@@ -518,7 +526,7 @@ impl<K: Eq + Hash + Ord + fmt::Debug, V> OrdHashMap<K, V> {
     where
         Cmp: Fn(&K) -> Option<Ordering> + Copy,
     {
-        let key = self.order.bisect_and_remove(|key| cmp(&*key))?;
+        let key = self.order.bisect_and_remove(|key| cmp(key))?;
         let value = self.inner.remove(&*key).expect("value");
         let key = Arc::try_unwrap(key).expect("key");
         Some((key, value))
@@ -647,12 +655,11 @@ mod tests {
     #[test]
     fn test_drain() {
         let mut map: OrdHashMap<u32, String> =
-            (0..10).into_iter().map(|i| (i, i.to_string())).collect();
+            (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain().collect::<Vec<_>>(),
             (0..10)
-                .into_iter()
                 .map(|i| (i, i.to_string()))
                 .collect::<Vec<_>>()
         );
@@ -661,38 +668,83 @@ mod tests {
     #[test]
     fn test_drain_partial() {
         let mut map: OrdHashMap<u32, String> =
-            (0..10).into_iter().map(|i| (i, i.to_string())).collect();
+            (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain().take_while(|(k, _v)| *k < 5).collect::<Vec<_>>(),
             (0..5)
-                .into_iter()
                 .map(|i| (i, i.to_string()))
                 .collect::<Vec<_>>()
         );
 
         assert_eq!(
             map,
-            (6..10).into_iter().map(|i| (i, i.to_string())).collect()
+            (6..10).map(|i| (i, i.to_string())).collect()
         );
     }
 
     #[test]
     fn test_drain_while() {
         let mut map: OrdHashMap<u32, String> =
-            (0..10).into_iter().map(|i| (i, i.to_string())).collect();
+            (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain_while(|(k, _v)| *k < 5).collect::<Vec<_>>(),
             (0..5)
-                .into_iter()
                 .map(|i| (i, i.to_string()))
                 .collect::<Vec<_>>()
         );
 
         assert_eq!(
             map,
-            (5..10).into_iter().map(|i| (i, i.to_string())).collect()
+            (5..10).map(|i| (i, i.to_string())).collect()
         );
+    }
+
+    #[test]
+    fn test_order_invariants_after_ops() {
+        let mut map: OrdHashMap<u32, String> =
+            (0..100).rev().map(|i| (i, i.to_string())).collect();
+
+        let keys: Vec<u32> = map.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, (0..100).collect::<Vec<_>>());
+
+        for i in 0..50 {
+            assert!(map.remove(&i).is_some());
+        }
+
+        let keys: Vec<u32> = map.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, (50..100).collect::<Vec<_>>());
+
+        let drained: Vec<_> = map.drain_while(|(k, _)| *k < 75).collect();
+        assert_eq!(drained.len(), 25);
+
+        let keys: Vec<u32> = map.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, (75..100).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_duplicate_insert_and_remove_missing() {
+        let mut map = OrdHashMap::new();
+
+        assert_eq!(map.insert(1, "one".to_string()), None);
+        assert_eq!(map.insert(1, "uno".to_string()), Some("one".to_string()));
+        assert_eq!(map.get(&1).map(|v| v.as_str()), Some("uno"));
+
+        assert_eq!(map.remove(&2), None);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn test_bisect_boundaries() {
+        let mut map = OrdHashMap::new();
+        map.insert(10u32, "ten".to_string());
+        map.insert(20, "twenty".to_string());
+
+        assert_eq!(map.bisect(|key| 5u32.partial_cmp(key)), None);
+        assert_eq!(map.bisect(|key| 10u32.partial_cmp(key)).map(|s| s.as_str()), Some("ten"));
+        assert_eq!(map.bisect(|key| 20u32.partial_cmp(key)).map(|s| s.as_str()), Some("twenty"));
+        assert_eq!(map.bisect(|key| 25u32.partial_cmp(key)), None);
     }
 }

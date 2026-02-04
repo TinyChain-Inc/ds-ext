@@ -2,7 +2,6 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use async_trait::async_trait;
 use destream::{de, en};
 
 use super::{LinkedHashMap, OrdHashMap, OrdHashSet};
@@ -21,7 +20,6 @@ impl<K, V> Default for LinkedHashMapVisitor<K, V> {
     }
 }
 
-#[async_trait]
 impl<K, V> de::Visitor for LinkedHashMapVisitor<K, V>
 where
     K: Hash + Eq + de::FromStream<Context = ()>,
@@ -50,7 +48,6 @@ where
     }
 }
 
-#[async_trait]
 impl<K, V> de::FromStream for LinkedHashMap<K, V>
 where
     K: Hash + Eq + de::FromStream<Context = ()> + Send + Sync,
@@ -97,7 +94,6 @@ impl<K, V> Default for OrdHashMapVisitor<K, V> {
     }
 }
 
-#[async_trait]
 impl<K, V> de::Visitor for OrdHashMapVisitor<K, V>
 where
     K: Ord + Hash + Eq + de::FromStream<Context = ()>,
@@ -126,7 +122,6 @@ where
     }
 }
 
-#[async_trait]
 impl<K, V> de::FromStream for OrdHashMap<K, V>
 where
     K: Ord + Hash + Eq + de::FromStream<Context = ()> + Send + Sync,
@@ -171,7 +166,6 @@ impl<T> Default for SetVisitor<T> {
     }
 }
 
-#[async_trait]
 impl<T> de::Visitor for SetVisitor<T>
 where
     T: de::FromStream<Context = ()> + Ord + Hash + Eq,
@@ -198,7 +192,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T> de::FromStream for OrdHashSet<T>
 where
     T: de::FromStream<Context = ()> + Ord + Hash + Eq + Send + Sync,
@@ -216,5 +209,14 @@ where
 {
     fn into_stream<E: en::Encoder<'en>>(self, encoder: E) -> Result<E::Ok, E::Error> {
         encoder.collect_seq(self)
+    }
+}
+
+impl<'en, T> en::ToStream<'en> for OrdHashSet<T>
+where
+    T: en::ToStream<'en> + fmt::Debug + 'en,
+{
+    fn to_stream<E: en::Encoder<'en>>(&'en self, encoder: E) -> Result<E::Ok, E::Error> {
+        encoder.collect_seq(self.iter())
     }
 }

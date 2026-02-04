@@ -189,7 +189,7 @@ impl<T> OrdHashSet<T> {
     }
 
     /// Construct an iterator over the items in this [`OrdHashSet`].
-    pub fn iter(&self) -> Iter<T> {
+    pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             inner: self.order.iter(),
         }
@@ -203,6 +203,12 @@ impl<T> OrdHashSet<T> {
     /// Return the number of items in this [`OrdHashSet`].
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+}
+
+impl<T> Default for OrdHashSet<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -238,9 +244,7 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
     where
         Cmp: Fn(&T) -> Option<Ordering>,
     {
-        if self.is_empty() {
-            return 0;
-        } else if cmp(&self.order[0]).is_some() {
+        if self.is_empty() || cmp(&self.order[0]).is_some() {
             return 0;
         }
 
@@ -345,16 +349,16 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
     }
 
     /// Return `true` if the given item is present in this [`OrdHashSet`].
-    pub fn contains<Q: ?Sized>(&self, item: &Q) -> bool
+    pub fn contains<Q>(&self, item: &Q) -> bool
     where
         Arc<T>: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         self.inner.contains(item)
     }
 
     /// Drain all items from this [`OrdHashSet`].
-    pub fn drain(&mut self) -> Drain<T> {
+    pub fn drain(&mut self) -> Drain<'_, T> {
         Drain {
             inner: &mut self.inner,
             order: self.order.drain(..),
@@ -362,7 +366,7 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
     }
 
     /// Drain items from this [`OrdHashSet`] while they match the given `cond`ition.
-    pub fn drain_while<Cond>(&mut self, cond: Cond) -> DrainWhile<T, Cond>
+    pub fn drain_while<Cond>(&mut self, cond: Cond) -> DrainWhile<'_, T, Cond>
     where
         Cond: Fn(&T) -> bool,
     {
@@ -382,7 +386,7 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
 
     /// Borrow the first item in this [`OrdHashSet`].
     pub fn first(&self) -> Option<&T> {
-        self.order.iter().next().map(|item| &**item)
+        self.order.first().map(|item| &**item)
     }
 
     /// Insert an `item` into this [`OrdHashSet`] and return `false` if it was already present.
@@ -398,7 +402,7 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
             } else {
                 let prior = self.order.get(index).expect("item").clone();
 
-                if &prior < &item {
+                if prior < item {
                     self.order.insert(index + 1, item.clone());
                 } else {
                     self.order.insert(index, item.clone());
@@ -467,9 +471,9 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
         T: PartialEq,
     {
         let mut this = self.iter();
-        let mut that = other.into_iter();
+        let that = other.into_iter();
 
-        while let Some(item) = that.next() {
+        for item in that {
             if this.next() != Some(item) {
                 return false;
             }
@@ -488,7 +492,7 @@ impl<T: Eq + Hash + Ord + fmt::Debug> OrdHashSet<T> {
             return true;
         }
 
-        let mut item = self.order.get(0).expect("item");
+        let mut item = self.order.first().expect("item");
         for i in 1..self.len() {
             let next = self.order.get(i).expect("next");
             assert!(*item <= *next, "set out of order: {:?}", self);
@@ -547,18 +551,18 @@ impl<'a, T> IntoIterator for &'a OrdHashSet<T> {
 }
 
 #[inline]
-fn bisect<T, Q>(list: &Vec<T>, target: &Q) -> usize
+fn bisect<T, Q>(list: &[T], target: &Q) -> usize
 where
     T: Borrow<Q> + Ord,
     Q: Ord,
 {
-    if let Some(front) = list.iter().next() {
+    if let Some(front) = list.first() {
         if target < (*front).borrow() {
             return 0;
         }
     }
 
-    if let Some(last) = list.iter().next_back() {
+    if let Some(last) = list.last() {
         if target > (*last).borrow() {
             return list.len();
         }
@@ -569,7 +573,7 @@ where
 
     while lo < hi {
         let mid = (lo + hi) >> 1;
-        let item = &*list.get(mid).expect("item");
+        let item = list.get(mid).expect("item");
 
         match item.borrow().cmp(target) {
             Ordering::Less => lo = mid + 1,
@@ -583,6 +587,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+
     use super::*;
 
     #[test]
@@ -618,7 +625,7 @@ mod tests {
     #[test]
     fn test_drain() {
         let mut set = OrdHashSet::from_iter(0..10);
-        let expected = (0..10).into_iter().collect::<Vec<_>>();
+        let expected = (0..10).collect::<Vec<_>>();
         let actual = set.drain().collect::<Vec<_>>();
         assert_eq!(expected, actual);
     }
@@ -629,5 +636,62 @@ mod tests {
         let drained = set.drain_while(|x| *x < 5).collect::<Vec<_>>();
         assert_eq!(drained, vec![0, 1, 2, 3, 4]);
         assert_eq!(set, OrdHashSet::from_iter(5..10));
+    }
+
+    #[test]
+    fn test_order_invariants_after_ops() {
+        let mut set = OrdHashSet::new();
+        for i in (0..100).rev() {
+            assert!(set.insert(i));
+        }
+
+        let items: Vec<_> = set.iter().cloned().collect();
+        assert_eq!(items, (0..100).collect::<Vec<_>>());
+
+        for i in 0..50 {
+            assert!(set.remove(&i));
+        }
+
+        let items: Vec<_> = set.iter().cloned().collect();
+        assert_eq!(items, (50..100).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_random_ops_invariants() {
+        let mut rng = StdRng::seed_from_u64(0x_d5e4);
+        let mut set = OrdHashSet::new();
+
+        for _ in 0..5_000 {
+            let value = rng.random_range(0..200);
+            if rng.random() {
+                set.insert(value);
+            } else {
+                set.remove(&value);
+            }
+
+            assert!(set.is_valid());
+        }
+    }
+
+    #[test]
+    fn test_bisect_boundaries() {
+        let mut set = OrdHashSet::new();
+        set.insert(10u32);
+        set.insert(20u32);
+
+        assert!(set.bisect(|item| 5u32.partial_cmp(item)).is_none());
+        assert_eq!(set.bisect(|item| 10u32.partial_cmp(item)), Some(&10));
+        assert_eq!(set.bisect(|item| 20u32.partial_cmp(item)), Some(&20));
+        assert!(set.bisect(|item| 25u32.partial_cmp(item)).is_none());
+    }
+
+    #[test]
+    fn test_remove_missing_does_not_mutate() {
+        let mut set = OrdHashSet::new();
+        set.insert(1u32);
+        set.insert(3u32);
+
+        assert!(!set.remove(&2u32));
+        assert_eq!(set.iter().cloned().collect::<Vec<_>>(), vec![1, 3]);
     }
 }

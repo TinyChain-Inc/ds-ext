@@ -21,12 +21,12 @@ struct Item<K, V> {
 
 impl<K, V> Item<K, V> {
     #[inline]
-    fn state(&self) -> Ref<ItemState<K>> {
+    fn state(&self) -> Ref<'_, ItemState<K>> {
         self.state.borrow()
     }
 
     #[inline]
-    fn state_mut(&self) -> RefMut<ItemState<K>> {
+    fn state_mut(&self) -> RefMut<'_, ItemState<K>> {
         self.state.borrow_mut()
     }
 }
@@ -324,7 +324,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     }
 
     /// Construct an iterator over the entries in this [`LinkedHashMap`].
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             list: &self.list,
             next: self.head.clone(),
@@ -339,7 +339,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     }
 
     /// Construct an iterator over keys of this [`LinkedHashMap`].
-    pub fn keys(&self) -> Keys<K, V> {
+    pub fn keys(&self) -> Keys<'_, K, V> {
         Keys { inner: self.iter() }
     }
 
@@ -350,14 +350,8 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
 
     /// Remove and return the first value in this [`LinkedHashMap`].
     pub fn pop_first(&mut self) -> Option<V> {
-        if self.head.is_none() {
-            return None;
-        }
-
-        let item = self
-            .list
-            .remove(self.head.as_ref().expect("head"))
-            .expect("head");
+        let head = self.head.as_ref()?;
+        let item = self.list.remove(head).expect("head");
 
         Some(self.remove_inner(item))
     }
@@ -367,13 +361,10 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     where
         K: fmt::Debug,
     {
-        if self.head.is_none() {
-            return None;
-        }
-
+        let head = self.head.as_ref()?;
         let (key, item) = self
             .list
-            .remove_entry(self.head.as_ref().expect("head"))
+            .remove_entry(head)
             .expect("head");
 
         let value = self.remove_inner(item);
@@ -383,14 +374,8 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
 
     /// Remove and return the last value in this [`LinkedHashMap`].
     pub fn pop_last(&mut self) -> Option<V> {
-        if self.tail.is_none() {
-            return None;
-        }
-
-        let item = self
-            .list
-            .remove(self.tail.as_ref().expect("tail"))
-            .expect("tail");
+        let tail = self.tail.as_ref()?;
+        let item = self.list.remove(tail).expect("tail");
 
         Some(self.remove_inner(item))
     }
@@ -400,13 +385,10 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     where
         K: fmt::Debug,
     {
-        if self.tail.is_none() {
-            return None;
-        }
-
+        let tail = self.tail.as_ref()?;
         let (key, item) = self
             .list
-            .remove_entry(self.tail.as_ref().expect("tail"))
+            .remove_entry(tail)
             .expect("tail");
 
         let value = self.remove_inner(item);
@@ -426,7 +408,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
             self.head = item_state.next.clone();
 
             let next_key = self.head.as_ref().expect("next key");
-            let mut next = self.list.get::<K>(&next_key).expect("next").state_mut();
+            let mut next = self.list.get::<K>(next_key).expect("next").state_mut();
 
             mem::swap(&mut next.prev, &mut item_state.prev);
         } else if item_state.next.is_none() {
@@ -527,8 +509,14 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     }
 
     /// Construct an iterator over the values in this [`LinkedHashMap`].
-    pub fn values(&self) -> Values<K, V> {
+    pub fn values(&self) -> Values<'_, K, V> {
         Values { inner: self.iter() }
+    }
+}
+
+impl<K: Eq + Hash, V> Default for LinkedHashMap<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -640,7 +628,8 @@ fn print_debug<K: fmt::Debug + Eq + Hash, V>(queue: &LinkedHashMap<K, V>) {
 
 #[cfg(test)]
 mod tests {
-    use rand::{thread_rng, Rng};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     use super::*;
 
@@ -674,9 +663,9 @@ mod tests {
         let mut queue = LinkedHashMap::new();
         validate(&queue);
 
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
         for _ in 1..100_000 {
-            let i: i32 = rng.gen_range(0..1000);
+            let i: i32 = rng.random_range(0..1000);
             queue.insert(i, i.to_string());
             validate(&queue);
 
@@ -689,7 +678,7 @@ mod tests {
             assert!(!queue.is_empty());
 
             while !queue.is_empty() {
-                let i: i32 = rng.gen_range(0..queue.len() as i32);
+                let i: i32 = rng.random_range(0..queue.len() as i32);
                 queue.bump(&i);
                 validate(&queue);
 
@@ -699,7 +688,7 @@ mod tests {
                 }
 
                 if !queue.is_empty() {
-                    let i: i32 = rng.gen_range(0..**queue.tail.as_ref().expect("tail"));
+                    let i: i32 = rng.random_range(0..**queue.tail.as_ref().expect("tail"));
                     queue.bump(&i);
                     validate(&queue);
                 }
@@ -714,5 +703,68 @@ mod tests {
 
             assert_eq!(queue.len(), 0);
         }
+    }
+
+    #[test]
+    fn test_random_ops_invariants() {
+        let mut rng = StdRng::seed_from_u64(0x_51a3_2b7d);
+        let mut queue = LinkedHashMap::new();
+        let mut live = std::collections::HashSet::new();
+
+        for _ in 0..10_000 {
+            let key: i32 = rng.random_range(0..500);
+            let action: u8 = rng.random_range(0..4);
+
+            match action {
+                0 => {
+                    queue.insert(key, key.to_string());
+                    live.insert(key);
+                }
+                1 => {
+                    queue.remove(&key);
+                    live.remove(&key);
+                }
+                2 => {
+                    queue.bump(&key);
+                }
+                _ => {
+                    if rng.random() {
+                        if let Some(value) = queue.pop_first() {
+                            let key: i32 = value.parse().expect("key");
+                            live.remove(&key);
+                        }
+                    } else if let Some(value) = queue.pop_last() {
+                        let key: i32 = value.parse().expect("key");
+                        live.remove(&key);
+                    }
+                }
+            }
+
+            validate(&queue);
+            assert_eq!(queue.len(), live.len());
+            for key in &live {
+                assert!(queue.get(key).is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn test_bump_head_tail_middle() {
+        let mut queue = LinkedHashMap::new();
+        queue.insert(1, "one".to_string());
+        queue.insert(2, "two".to_string());
+        queue.insert(3, "three".to_string());
+
+        // bump head: no change
+        assert!(queue.bump(&3));
+        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![3, 2, 1]);
+
+        // bump tail: move up one position
+        assert!(queue.bump(&1));
+        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![3, 1, 2]);
+
+        // bump middle: move up one position
+        assert!(queue.bump(&1));
+        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![1, 3, 2]);
     }
 }
