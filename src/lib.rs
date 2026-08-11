@@ -140,9 +140,8 @@ mod tests {
 
         let payload = (map.clone(), set.clone(), linked.clone());
         let stream = tbon::en::encode(&payload).expect("encode tbon payload");
-        let decoded: MapSetLinked =
-            futures::executor::block_on(tbon::de::try_decode((), stream))
-                .expect("decode tbon payload");
+        let decoded: MapSetLinked = futures::executor::block_on(tbon::de::try_decode((), stream))
+            .expect("decode tbon payload");
 
         assert_eq!(decoded.0, map);
         assert_eq!(decoded.1, set);

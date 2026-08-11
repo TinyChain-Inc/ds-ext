@@ -362,10 +362,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
         K: fmt::Debug,
     {
         let head = self.head.as_ref()?;
-        let (key, item) = self
-            .list
-            .remove_entry(head)
-            .expect("head");
+        let (key, item) = self.list.remove_entry(head).expect("head");
 
         let value = self.remove_inner(item);
         let key = Arc::try_unwrap(key).expect("key");
@@ -386,10 +383,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
         K: fmt::Debug,
     {
         let tail = self.tail.as_ref()?;
-        let (key, item) = self
-            .list
-            .remove_entry(tail)
-            .expect("tail");
+        let (key, item) = self.list.remove_entry(tail).expect("tail");
 
         let value = self.remove_inner(item);
         let key = Arc::try_unwrap(key).expect("key");
@@ -564,7 +558,7 @@ impl<K: Eq + Hash + fmt::Debug, V: fmt::Debug> fmt::Debug for LinkedHashMap<K, V
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn validate<K: Eq + Hash + fmt::Debug, V>(queue: &LinkedHashMap<K, V>) {
     if queue.list.is_empty() {
         assert!(queue.head.is_none(), "head is {:?}", queue.head);
@@ -598,32 +592,6 @@ fn validate<K: Eq + Hash + fmt::Debug, V>(queue: &LinkedHashMap<K, V>) {
     }
 
     assert_eq!(size, queue.len());
-}
-
-#[allow(dead_code)]
-fn print_debug<K: fmt::Debug + Eq + Hash, V>(queue: &LinkedHashMap<K, V>) {
-    let mut next = queue.head.clone();
-
-    if next.is_some() {
-        println!();
-    }
-
-    while let Some(next_key) = next {
-        let item = queue.list.get::<K>(&next_key).expect("item").state();
-
-        if let Some(prev_key) = item.prev.as_ref() {
-            print!("{:?}-", prev_key);
-        }
-
-        print!("{:?}", next_key);
-
-        next = item.next.clone();
-        if let Some(next_key) = &next {
-            print!("-{:?}", next_key);
-        }
-
-        println!();
-    }
 }
 
 #[cfg(test)]
@@ -757,14 +725,23 @@ mod tests {
 
         // bump head: no change
         assert!(queue.bump(&3));
-        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert_eq!(
+            queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
 
         // bump tail: move up one position
         assert!(queue.bump(&1));
-        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![3, 1, 2]);
+        assert_eq!(
+            queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+            vec![3, 1, 2]
+        );
 
         // bump middle: move up one position
         assert!(queue.bump(&1));
-        assert_eq!(queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(), vec![1, 3, 2]);
+        assert_eq!(
+            queue.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+            vec![1, 3, 2]
+        );
     }
 }

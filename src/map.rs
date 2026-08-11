@@ -654,57 +654,41 @@ mod tests {
 
     #[test]
     fn test_drain() {
-        let mut map: OrdHashMap<u32, String> =
-            (0..10).map(|i| (i, i.to_string())).collect();
+        let mut map: OrdHashMap<u32, String> = (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain().collect::<Vec<_>>(),
-            (0..10)
-                .map(|i| (i, i.to_string()))
-                .collect::<Vec<_>>()
+            (0..10).map(|i| (i, i.to_string())).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn test_drain_partial() {
-        let mut map: OrdHashMap<u32, String> =
-            (0..10).map(|i| (i, i.to_string())).collect();
+        let mut map: OrdHashMap<u32, String> = (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain().take_while(|(k, _v)| *k < 5).collect::<Vec<_>>(),
-            (0..5)
-                .map(|i| (i, i.to_string()))
-                .collect::<Vec<_>>()
+            (0..5).map(|i| (i, i.to_string())).collect::<Vec<_>>()
         );
 
-        assert_eq!(
-            map,
-            (6..10).map(|i| (i, i.to_string())).collect()
-        );
+        assert_eq!(map, (6..10).map(|i| (i, i.to_string())).collect());
     }
 
     #[test]
     fn test_drain_while() {
-        let mut map: OrdHashMap<u32, String> =
-            (0..10).map(|i| (i, i.to_string())).collect();
+        let mut map: OrdHashMap<u32, String> = (0..10).map(|i| (i, i.to_string())).collect();
 
         assert_eq!(
             map.drain_while(|(k, _v)| *k < 5).collect::<Vec<_>>(),
-            (0..5)
-                .map(|i| (i, i.to_string()))
-                .collect::<Vec<_>>()
+            (0..5).map(|i| (i, i.to_string())).collect::<Vec<_>>()
         );
 
-        assert_eq!(
-            map,
-            (5..10).map(|i| (i, i.to_string())).collect()
-        );
+        assert_eq!(map, (5..10).map(|i| (i, i.to_string())).collect());
     }
 
     #[test]
     fn test_order_invariants_after_ops() {
-        let mut map: OrdHashMap<u32, String> =
-            (0..100).rev().map(|i| (i, i.to_string())).collect();
+        let mut map: OrdHashMap<u32, String> = (0..100).rev().map(|i| (i, i.to_string())).collect();
 
         let keys: Vec<u32> = map.iter().map(|(k, _)| *k).collect();
         assert_eq!(keys, (0..100).collect::<Vec<_>>());
@@ -743,8 +727,14 @@ mod tests {
         map.insert(20, "twenty".to_string());
 
         assert_eq!(map.bisect(|key| 5u32.partial_cmp(key)), None);
-        assert_eq!(map.bisect(|key| 10u32.partial_cmp(key)).map(|s| s.as_str()), Some("ten"));
-        assert_eq!(map.bisect(|key| 20u32.partial_cmp(key)).map(|s| s.as_str()), Some("twenty"));
+        assert_eq!(
+            map.bisect(|key| 10u32.partial_cmp(key)).map(|s| s.as_str()),
+            Some("ten")
+        );
+        assert_eq!(
+            map.bisect(|key| 20u32.partial_cmp(key)).map(|s| s.as_str()),
+            Some("twenty")
+        );
         assert_eq!(map.bisect(|key| 25u32.partial_cmp(key)), None);
     }
 }

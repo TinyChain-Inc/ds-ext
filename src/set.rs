@@ -484,7 +484,7 @@ impl<T: Eq + Hash + Ord> OrdHashSet<T> {
 }
 
 impl<T: Eq + Hash + Ord + fmt::Debug> OrdHashSet<T> {
-    #[allow(unused)]
+    #[cfg(test)]
     fn is_valid(&self) -> bool {
         assert_eq!(self.inner.len(), self.order.len());
 
